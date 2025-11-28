@@ -78,22 +78,34 @@ def generate_runbook_for_topic(topic: str) -> Runbook:
         ]
     }
 
-    prompt = f"""
-Write a JSON-structured runbook for the following topic.
+        prompt = f"""
+You are generating a runbook for Tier 1/Tier 2 IT analysts.
 
-INPUT:
+INPUT (tickets):
 {json.dumps(payload, indent=2)}
 
 REQUIREMENTS:
-- Produce a simple JSON object.
-- Keys REQUIRED: "title", "summary", "steps", "references"
-- "steps" MUST be a list of short bullet-point strings.
-- "references" MUST be a list of short strings.
-- ABSOLUTELY DO NOT include schemas, metadata, keywords, versions, or nested structures.
-- DO NOT include explanation, commentary, or markdown.
-- DO NOT include any keys other than: title, summary, steps, references.
-- Return ONLY the JSON object.
+- Return ONLY valid JSON.
+- Do NOT include markdown, schemas, metadata, or explanation.
+- JSON must have EXACTLY these keys:
+  "title", "summary", "steps", "references"
+- "title": short and human-readable.
+- "summary": 2–4 sentences explaining the problem in plain language based on ticket patterns.
+- "steps": 5–12 operational steps that reflect common remediation actions found in the tickets.
+    * Steps MUST be imperative commands (e.g., "Check X", "Verify Y").
+    * Steps MUST be practical, actionable, and specific.
+- "references": list of related tools, consoles, dashboards, or documentation links
+    * Keep them short, e.g. "O365 Admin Center → Message Trace"
+
+ABSOLUTELY DO NOT:
+- produce schemas
+- wrap anything in markdown
+- nest keys
+- embed the entire JSON inside one field
+
+Return ONLY the JSON object.
 """
+
 
     raw = call_llm(prompt)
 
