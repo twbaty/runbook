@@ -1,13 +1,19 @@
-def generate_runbook_for_topic(topic: str) -> Runbook:
-    from .ai_client import call_llm
-    import json
-    from flask import current_app
-    from jinja2 import Template
+# app/services/runbook_gen.py
 
+import json
+from flask import current_app
+from jinja2 import Template
+
+from ..models import Ticket, Runbook
+from ..extensions import db
+from .ai_client import call_llm
+
+
+def generate_runbook_for_topic(topic: str) -> Runbook:
     # Get all tickets under this topic
     tickets = Ticket.query.filter_by(topic=topic).order_by(Ticket.opened_at).all()
 
-    # Build a simple payload for the LLM
+    # Build input payload for the LLM
     payload = {
         "topic": topic,
         "tickets": [
@@ -33,17 +39,15 @@ REQUIREMENTS:
 - "steps" must be a list of strings.
 """
 
-    # Call the LLM
+    # Call LLM
     raw = call_llm(prompt)
 
-    # Debug — print raw response to console
-    print("RAW LLM OUTPUT:\n", raw)
+    print("\nRAW LLM OUTPUT:\n", raw)
 
-    # Try to parse JSON safely
+    # Try parsing JSON
     try:
         data = json.loads(raw)
     except Exception as e:
-        # Fallback: wrap text if not JSON
         print("JSON PARSE ERROR:", e)
         data = {
             "title": f"Runbook for {topic}",
@@ -52,7 +56,7 @@ REQUIREMENTS:
             "references": []
         }
 
-    # Markdown template (Jinja2)
+    # Markdown template
     template = Template("""
 # {{ runbook.title }}
 
@@ -72,7 +76,7 @@ REQUIREMENTS:
 
     markdown = template.render(runbook=data)
 
-    # Store or update the Runbook record
+    # Save or update runbook in DB
     rb = Runbook.query.filter_by(topic=topic).first()
     if not rb:
         rb = Runbook(topic=topic, title=data.get("title", f"Runbook for {topic}"))
@@ -82,4 +86,5 @@ REQUIREMENTS:
     rb.markdown = markdown
 
     db.session.commit()
+
     return rb
