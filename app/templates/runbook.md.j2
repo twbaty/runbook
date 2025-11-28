@@ -4,15 +4,13 @@
 **Scope:** {{ runbook.scope }}
 
 ## Detection Signals
-{% for sig in runbook.detection_signals %}- {{ sig }}
+{% for sig in runbook.detection_signals %}
+- {{ sig }}
 {% endfor %}
 
 ## MITRE Techniques
-{% for t in runbook.mitre_techniques %}- {{ t }}
-{% endfor %}
-
-## Prerequisites
-{% for p in runbook.prerequisites %}- {{ p }}
+{% for t in runbook.mitre_techniques %}
+- {{ t }}
 {% endfor %}
 
 ## Investigation Steps
@@ -29,32 +27,7 @@
 
 {% endfor %}
 
-## Eradication Steps
-{% for step in runbook.eradication_steps %}
-### {{ loop.index }}. {{ step.title }}
-{{ step.details }}
-
-{% endfor %}
-
-## Recovery Steps
-{% for step in runbook.recovery_steps %}
-### {{ loop.index }}. {{ step.title }}
-{{ step.details }}
-
-{% endfor %}
-
-## Validation Checks
-{% for v in runbook.validation_checks %}- {{ v }}
-{% endfor %}
-
-## Escalation Criteria
-{% for e in runbook.escalation_criteria %}- {{ e }}
-{% endfor %}
-
 ## Done Criteria
-{% for d in runbook.done_criteria %}- {{ d }}
-{% endfor %}
-
-## Known Pitfalls
-{% for p in runbook.known_pitfalls %}- {{ p }}
+{% for d in runbook.done_criteria %}
+- {{ d }}
 {% endfor %}
