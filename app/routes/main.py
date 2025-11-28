@@ -12,6 +12,14 @@ def index():
     topics = db.session.query(Ticket.topic, db.func.count(Ticket.id))\
                        .group_by(Ticket.topic).all()
     runbooks = Runbook.query.order_by(Runbook.last_updated.desc()).all()
+    @main_bp.route("/")
+def index():
+    topics = db.session.query(Ticket.topic, db.func.count(Ticket.id))\
+                       .group_by(Ticket.topic).all()
+
+    print("DEBUG TOPICS:", topics)
+
+    runbooks = Runbook.query.order_by(Runbook.last_updated.desc()).all()
     return render_template("index.html", topics=topics, runbooks=runbooks)
 
 @main_bp.route("/upload_snow", methods=["GET", "POST"])
