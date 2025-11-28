@@ -2,33 +2,24 @@
 import subprocess
 import json
 import time
-
+import requests
 
 OLLAMA_HOST = "http://127.0.0.1:11434"
 REQUIRED_MODEL = "llama3.1"
 
 
+# ------------------------------
+# Shell Helpers
+# ------------------------------
+
 def _run_cmd(cmd):
     """Run a shell command and capture output."""
-    return subprocess.run(
-        cmd, shell=True, capture_output=True, text=True
-    )
+    return subprocess.run(cmd, shell=True, capture_output=True, text=True)
 
-def ping_model() -> bool:
-    """
-    Send a 1-token prompt to the model to ensure it's loaded into RAM.
-    Returns True if successful.
-    """
-    import requests
-    try:
-        resp = requests.post(
-            f"{OLLAMA_HOST}/api/generate",
-            json={"model": MODEL_NAME, "prompt": "ping"},
-            timeout=8,
-        )
-        return resp.status_code == 200
-    except Exception:
-        return False
+
+# ------------------------------
+# Service Status
+# ------------------------------
 
 def ollama_is_running() -> bool:
     """Return True if Ollama service is running."""
@@ -51,6 +42,10 @@ def start_ollama():
     else:
         print("✔ Ollama is already running.")
 
+
+# ------------------------------
+# Model Helpers
+# ------------------------------
 
 def list_models() -> list[str]:
     """Return a list of installed Ollama models."""
@@ -80,19 +75,51 @@ def ensure_model_present(model: str = REQUIRED_MODEL):
     print(f"✔ Model '{model}' downloaded and installed.")
 
 
-def ensure_ollama_ready():
-    """Top-level initializer: run once on Flask startup."""
-    start_ollama()
-    ensure_model_present(REQUIRED_MODEL)
+# ------------------------------
+# Model Ping + Warm
+# ------------------------------
+
+def ping_model(model: str = REQUIRED_MODEL) -> bool:
+    """
+    Send a tiny prompt to ensure Ollama + model both work.
+    Returns True if healthy.
+    """
+    try:
+        resp = requests.post(
+            f"{OLLAMA_HOST}/api/generate",
+            json={"model": model, "prompt": "ping"},
+            timeout=6,
+        )
+        return resp.status_code == 200
+    except Exception:
+        return False
+
+
+def ensure_ollama_running() -> bool:
+    """
+    Public-safe function used by health checks and warmups.
+    Makes sure:
+      1. Ollama service is running
+      2. REQUIRED_MODEL is installed
+    Returns True if ready.
+    """
+    try:
+        start_ollama()
+        ensure_model_present(REQUIRED_MODEL)
+        return True
+    except Exception as exc:
+        print("❌ ensure_ollama_running failed:", exc)
+        return False
+
 
 def warm_model():
     """
     Ensure Ollama is running AND preload the model into RAM.
+    Called automatically at app startup.
     """
     if ensure_ollama_running():
         print("🔥 Warming Ollama model...")
         if ping_model():
             print("✔ Model is warmed and ready.")
         else:
-            print("⚠ Model ping failed — may still be cold.")
-
+            print("⚠ Model ping failed — but service is running.")
