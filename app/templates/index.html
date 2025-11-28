@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Runbook Dashboard</h1>
+
+<h3>Topics</h3>
+<ul>
+  {% for topic, count in topics %}
+    <li><a href="{{ url_for('main.view_topic', topic=topic) }}">{{ topic }}</a>
+        ({{ count }})</li>
+  {% endfor %}
+</ul>
+
+<h3>Generated Runbooks</h3>
+<ul>
+  {% for rb in runbooks %}
+    <li><a href="{{ url_for('main.view_runbook', runbook_id=rb.id) }}">
+      {{ rb.title }}
+    </a></li>
+  {% endfor %}
+</ul>
+
+<a class="btn btn-primary" href="{{ url_for('main.upload_snow') }}">Upload SNOW CSV</a>
+
+{% endblock %}
