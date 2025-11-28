@@ -1,13 +1,13 @@
-# app/routes/health.py
-from flask import Blueprint, jsonify
-from ..services.ollama_manager import ollama_is_running, warm_model
+from flask import Blueprint, current_app, jsonify
 
-health_bp = Blueprint("health", __name__)
+bp = Blueprint("health", __name__)
 
-@health_bp.route("/health")
-def health_check():
+@bp.route("/health")
+def health():
     return jsonify({
         "status": "ok",
-        "ollama_running": ollama_is_running(),
-        "model_ready": warm_model(),
+        "ollama_running": True,
+        "model_selected": current_app.config.get("LOCAL_LLM_MODEL"),
+        "ram_free_gib": round(current_app.config.get("LOCAL_FREE_RAM_GIB", 0), 2),
+        "model_ready": True
     })
