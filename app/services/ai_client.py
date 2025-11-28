@@ -4,39 +4,45 @@ import json
 import requests
 from flask import current_app
 
+from .phi_scrub import scrub_text
+
+
+def _get_llm_base_url() -> str:
+    # Local LLM (Ollama) default
+    return current_app.config.get("LOCAL_LLM_BASE_URL", "http://localhost:11434")
+
+
+def _get_llm_model() -> str:
+    # Default local model name
+    return current_app.config.get("LOCAL_LLM_MODEL", "llama3.1")
+
+
 def call_llm(prompt: str) -> str:
     """
-    Calls OpenAI and forces strict JSON-only output.
+    Call a local LLM (e.g., Ollama) instead of OpenAI.
+    PHI/PII is scrubbed BEFORE it is sent to the model.
     """
-    api_key = current_app.config.get("OPENAI_API_KEY")
-    if not api_key:
-        raise RuntimeError("OPENAI_API_KEY not configured")
+    base_url = _get_llm_base_url()
+    model = _get_llm_model()
 
-    # Force JSON-only responses so json.loads() never breaks
-    system_msg = (
-        "You must return ONLY valid JSON. "
-        "No markdown. No code fences. No explanations. "
-        "Just a JSON object."
-    )
+    # Scrub PHI/PII from the prompt before sending anywhere
+    safe_prompt = scrub_text(prompt)
 
-    resp = requests.post(
-        "https://api.openai.com/v1/chat/completions",
-        headers={"Authorization": f"Bearer {api_key}"},
-        json={
-            "model": "gpt-4.1-mini",
-            "messages": [
-                {"role": "system", "content": system_msg},
-                {"role": "user", "content": prompt}
-            ],
-            "temperature": 0,   # deterministic so JSON stays stable
-        },
-        timeout=30,
-    )
+    # Ollama chat API
+    url = f"{base_url}/api/chat"
+    payload = {
+        "model": model,
+        "messages": [
+            {"role": "system", "content": "You are a helpful security runbook assistant."},
+            {"role": "user", "content": safe_prompt},
+        ],
+        "stream": False,
+    }
 
+    resp = requests.post(url, json=payload, timeout=60)
     resp.raise_for_status()
     data = resp.json()
 
-    # Extract the model's response text
-    output = data["choices"][0]["message"]["content"].strip()
-
-    return output
+    # Ollama returns content in: data["message"]["content"]
+    msg = data.get("message", {}).get("content", "")
+    return msg.strip()
