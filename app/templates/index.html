@@ -5,9 +5,11 @@
 <h3>Topics</h3>
 <ul>
   {% for topic, count in topics %}
-    <li><a href="{{ url_for('main.view_topic', topic=topic) }}">{{ topic }}</a>
-        ({{ count }})</li>
-  {% endfor %}
+    <li>
+        <a href="{{ url_for('main.view_topic', topic=topic) }}">{{ topic }}</a>
+        ({{ count }})
+    </li>
+{% endfor %}
 </ul>
 
 <h3>Generated Runbooks</h3>
