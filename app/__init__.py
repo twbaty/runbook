@@ -1,6 +1,4 @@
 # app/__init__.py
-from dotenv import load_dotenv
-load_dotenv(".secrets")
 from flask import Flask
 from .config import Config
 from .extensions import db, migrate
