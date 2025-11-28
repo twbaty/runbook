@@ -10,9 +10,6 @@ def create_app():
     app.config["LOCAL_LLM_MODEL"] = model_name
     app.config["LOCAL_FREE_RAM_GIB"] = free_ram
 
-    # Start Ollama if needed
-    ensure_ollama_running()
-
     # Register blueprints
     app.register_blueprint(health_bp)
 
