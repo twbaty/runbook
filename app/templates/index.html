@@ -6,10 +6,10 @@
 <ul>
   {% for topic, count in topics %}
     <li>
-        <a href="{{ url_for('main.view_topic', topic=topic) }}">{{ topic }}</a>
-        ({{ count }})
+      <a href="{{ url_for('main.view_topic', topic=topic) }}">{{ topic }}</a>
+      ({{ count }})
     </li>
-{% endfor %}
+  {% endfor %}
 </ul>
 
 <h3>Generated Runbooks</h3>
