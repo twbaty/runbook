@@ -1,26 +1,76 @@
 # app/services/runbook_gen.py
-
 import json
-from flask import current_app
 from jinja2 import Template
 
-from ..models import Ticket, Runbook
-from ..extensions import db
 from .ai_client import call_llm
+from .phi_scrub import scrub_text
 
+from ..extensions import db
+from ..models import Ticket, Runbook
+
+
+# ======================================================
+# CLASSIFY TOPICS (AI)
+# ======================================================
+
+def classify_ticket_topic(ticket: Ticket) -> str:
+    """Assign a topic label to a ticket using local LLM."""
+    text = scrub_text(f"{ticket.short_description}\n\n{ticket.description or ''}")
+
+    prompt = f"""
+Classify the topic of this ticket into ONE short label, lowercase:
+
+Valid examples:
+- vpn_failure
+- phishing
+- malware
+- email_issue
+- endpoint_issue
+- ransomware
+- identity_issue
+- network_issue
+- access_issue
+- cloud_issue
+
+Incident text:
+{text}
+
+Return ONLY the label. No extra words.
+"""
+
+    raw = call_llm(prompt)
+    label = raw.split()[0].lower().strip()
+    return label or "uncategorized"
+
+
+
+# ======================================================
+# BULK ASSIGN TOPICS
+# ======================================================
+
+def assign_topics_to_tickets(tickets):
+    """Assign AI-derived topics to a list of Ticket objects."""
+    for t in tickets:
+        t.topic = classify_ticket_topic(t)
+    db.session.commit()
+
+
+
+# ======================================================
+# GENERATE RUNBOOK
+# ======================================================
 
 def generate_runbook_for_topic(topic: str) -> Runbook:
-    # Get all tickets under this topic
+    """Create/update the runbook for a given topic."""
     tickets = Ticket.query.filter_by(topic=topic).order_by(Ticket.opened_at).all()
 
-    # Build input payload for the LLM
     payload = {
         "topic": topic,
         "tickets": [
             {
                 "number": t.number,
-                "short_description": t.short_description,
-                "description": t.description,
+                "short_description": scrub_text(t.short_description),
+                "description": scrub_text(t.description or ""),
                 "opened_at": str(t.opened_at)
             }
             for t in tickets
@@ -28,23 +78,22 @@ def generate_runbook_for_topic(topic: str) -> Runbook:
     }
 
     prompt = f"""
-You are a security analyst. Write a runbook in structured JSON.
+Write a JSON-structured runbook for the following topic.
 
-INPUT DATA:
+INPUT:
 {json.dumps(payload, indent=2)}
 
 REQUIREMENTS:
 - Return ONLY valid JSON.
-- Keys must be: "title", "summary", "steps", "references".
-- "steps" must be a list of strings.
+- Keys: "title", "summary", "steps", "references"
+- "steps" = list of strings
 """
 
-    # Call LLM
     raw = call_llm(prompt)
 
-    print("\nRAW LLM OUTPUT:\n", raw)
+    print("RAW LLM OUTPUT:", raw)
 
-    # Try parsing JSON
+    # Attempt to parse JSON
     try:
         data = json.loads(raw)
     except Exception as e:
@@ -56,8 +105,7 @@ REQUIREMENTS:
             "references": []
         }
 
-    # Markdown template
-    template = Template("""
+    md_template = Template("""
 # {{ runbook.title }}
 
 ## Summary
@@ -74,9 +122,8 @@ REQUIREMENTS:
 {% endfor %}
 """)
 
-    markdown = template.render(runbook=data)
+    markdown = md_template.render(runbook=data)
 
-    # Save or update runbook in DB
     rb = Runbook.query.filter_by(topic=topic).first()
     if not rb:
         rb = Runbook(topic=topic, title=data.get("title", f"Runbook for {topic}"))
@@ -86,5 +133,4 @@ REQUIREMENTS:
     rb.markdown = markdown
 
     db.session.commit()
-
     return rb
