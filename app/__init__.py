@@ -1,23 +1,30 @@
 # app/__init__.py
 from flask import Flask
 from .extensions import db
-from .ollama_auto import pick_best_model  # OK
-from .routes.main import main_bp          # <-- your web UI
-from .routes.health import bp as health_bp      # <-- the /health endpoint
+from .config import Config
+import os
 
 def create_app():
-    app = Flask(__name__)
-    app.config.from_object("config.Config")
+    # DO NOT use instance_relative_config=True
+    app = Flask(__name__, template_folder="templates")
 
+    # Load your config normally
+    app.config.from_object(Config)
+
+    # Ensure the database directory exists
+    db_path = app.config["SQLALCHEMY_DATABASE_URI"].replace("sqlite:///", "")
+    db_dir = os.path.dirname(db_path)
+    if db_dir and not os.path.exists(db_dir):
+        os.makedirs(db_dir, exist_ok=True)
+
+    # Init extensions
     db.init_app(app)
 
-    # ---- auto model selection ----
-    selected_model, free_ram = pick_best_model()
-    app.config["LOCAL_LLM_MODEL"] = selected_model
-    app.config["LOCAL_FREE_RAM_GIB"] = free_ram
+    # Register blueprints
+    from .routes.main import main_bp
+    from .routes.health import health_bp
 
-    # ---- register your existing blueprints ----
-    app.register_blueprint(main_bp)      # <--- THIS brings back the web pages
+    app.register_blueprint(main_bp)
     app.register_blueprint(health_bp)
 
     return app
