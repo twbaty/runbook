@@ -2,124 +2,144 @@
 import subprocess
 import json
 import time
-import requests
+import shutil
 
 OLLAMA_HOST = "http://127.0.0.1:11434"
 REQUIRED_MODEL = "llama3.1"
 
 
-# ------------------------------
-# Shell Helpers
-# ------------------------------
-
-def _run_cmd(cmd):
-    """Run a shell command and capture output."""
+def _run_cmd(cmd: str):
+    """Run shell command silently."""
     return subprocess.run(cmd, shell=True, capture_output=True, text=True)
 
 
-# ------------------------------
-# Service Status
-# ------------------------------
+# ------------------------------------------------------------
+# SERVICE DETECTION
+# ------------------------------------------------------------
+def systemd_service_exists() -> bool:
+    """Return True if ollama.service exists in the user systemd tree."""
+    result = _run_cmd("systemctl --user list-unit-files | grep -q ollama.service")
+    return result.returncode == 0
 
-def ollama_is_running() -> bool:
-    """Return True if Ollama service is running."""
-    proc = _run_cmd("pgrep ollama")
-    return proc.returncode == 0
+
+def ollama_via_systemd_is_running() -> bool:
+    """True if the systemd service is active."""
+    result = _run_cmd("systemctl --user is-active ollama")
+    return result.stdout.strip() == "active"
 
 
-def start_ollama():
-    """Start Ollama if not running."""
-    if not ollama_is_running():
-        print("⚠ Ollama is NOT running. Attempting to start...")
-        proc = _run_cmd("systemctl --user start ollama")
+# ------------------------------------------------------------
+# DIRECT MODE (curl installer)
+# ------------------------------------------------------------
+def ollama_binary_exists() -> bool:
+    """True if the 'ollama' binary is available."""
+    return shutil.which("ollama") is not None
 
-        # Wait briefly for it to come up
-        time.sleep(2)
 
-        if not ollama_is_running():
-            raise RuntimeError("❌ Failed to start Ollama")
-        print("✔ Ollama started successfully.")
+def ollama_via_direct_is_running() -> bool:
+    """Check if an Ollama server is already listening."""
+    result = _run_cmd("pgrep -f 'ollama serve'")
+    return result.returncode == 0
+
+
+def start_ollama_direct():
+    """Start Ollama in background using the binary directly."""
+    print("⚠ Starting Ollama in direct mode...")
+    subprocess.Popen(
+        ["ollama", "serve"],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    time.sleep(2)
+    if not ollama_via_direct_is_running():
+        raise RuntimeError("❌ Failed to start Ollama (direct mode)")
+    print("✔ Ollama started (direct mode).")
+
+
+# ------------------------------------------------------------
+# ONE UNIFIED START FUNCTION
+# ------------------------------------------------------------
+def ensure_ollama_running():
+    """Ensure Ollama is running, using systemd if available."""
+    # 1) Systemd exists → use it
+    if systemd_service_exists():
+        if not ollama_via_systemd_is_running():
+            print("⚠ Ollama is NOT running (systemd). Attempting to start...")
+            result = _run_cmd("systemctl --user start ollama")
+            if result.returncode != 0:
+                raise RuntimeError("❌ Failed to start Ollama via systemd")
+            print("✔ Ollama started (systemd).")
+        else:
+            print("✔ Ollama already running (systemd).")
+        return
+
+    # 2) Systemd missing → fall back to direct
+    if not ollama_binary_exists():
+        raise RuntimeError("❌ Ollama binary not found; cannot start.")
+
+    if not ollama_via_direct_is_running():
+        start_ollama_direct()
     else:
-        print("✔ Ollama is already running.")
+        print("✔ Ollama already running (direct mode).")
 
 
-# ------------------------------
-# Model Helpers
-# ------------------------------
-
+# ------------------------------------------------------------
+# MODEL MANAGEMENT
+# ------------------------------------------------------------
 def list_models() -> list[str]:
-    """Return a list of installed Ollama models."""
-    proc = _run_cmd("ollama list --json")
-    if proc.returncode != 0:
+    """Return list of installed models."""
+    result = _run_cmd("ollama list --json")
+    if result.returncode != 0:
         return []
 
     try:
-        models = json.loads(proc.stdout)
+        models = json.loads(result.stdout)
         return [m["name"] for m in models]
     except Exception:
         return []
 
 
 def ensure_model_present(model: str = REQUIRED_MODEL):
-    """Pull the model if it is missing."""
+    """Pull model if missing."""
     models = list_models()
 
     if model in models:
         print(f"✔ Model '{model}' already installed.")
         return
 
-    print(f"⚠ Model '{model}' not found. Pulling now...")
-    proc = _run_cmd(f"ollama pull {model}")
-    if proc.returncode != 0:
+    print(f"⚠ Model '{model}' missing — pulling now...")
+    result = _run_cmd(f"ollama pull {model}")
+    if result.returncode != 0:
         raise RuntimeError(f"❌ Failed to pull model '{model}'")
-    print(f"✔ Model '{model}' downloaded and installed.")
+    print(f"✔ Model '{model}' installed.")
 
 
-# ------------------------------
-# Model Ping + Warm
-# ------------------------------
-
-def ping_model(model: str = REQUIRED_MODEL) -> bool:
-    """
-    Send a tiny prompt to ensure Ollama + model both work.
-    Returns True if healthy.
-    """
+# ------------------------------------------------------------
+# WARM MODEL
+# ------------------------------------------------------------
+def warm_model(model: str = REQUIRED_MODEL):
+    """Ping model so it loads into RAM."""
+    import requests
     try:
         resp = requests.post(
             f"{OLLAMA_HOST}/api/generate",
             json={"model": model, "prompt": "ping"},
-            timeout=6,
+            timeout=10,
         )
-        return resp.status_code == 200
+        if resp.status_code == 200:
+            print("🔥 Model warmed and ready.")
+            return True
     except Exception:
-        return False
+        pass
+
+    print("⚠ Model warm-up failed (cold start).")
+    return False
 
 
-def ensure_ollama_running() -> bool:
-    """
-    Public-safe function used by health checks and warmups.
-    Makes sure:
-      1. Ollama service is running
-      2. REQUIRED_MODEL is installed
-    Returns True if ready.
-    """
-    try:
-        start_ollama()
-        ensure_model_present(REQUIRED_MODEL)
-        return True
-    except Exception as exc:
-        print("❌ ensure_ollama_running failed:", exc)
-        return False
-
-
-def warm_model():
-    """
-    Ensure Ollama is running AND preload the model into RAM.
-    Called automatically at app startup.
-    """
-    if ensure_ollama_running():
-        print("🔥 Warming Ollama model...")
-        if ping_model():
-            print("✔ Model is warmed and ready.")
-        else:
-            print("⚠ Model ping failed — but service is running.")
+# ------------------------------------------------------------
+# THIS IS WHAT YOU CALL ON APP STARTUP
+# ------------------------------------------------------------
+def ensure_ollama_ready():
+    ensure_ollama_running()
+    ensure_model_present()
+    warm_model()
