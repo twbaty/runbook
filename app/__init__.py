@@ -1,5 +1,5 @@
 from flask import Flask
-from .ollama_auto import ensure_ollama_running, pick_best_model
+from .ollama_auto import pick_best_model
 from .routes.health import bp as health_bp
 
 def create_app():
