@@ -29,21 +29,22 @@ def load_environment():
 load_environment()
 
 
-def create_app(config_class: type[Config] = Config) -> Flask:
-    """
-    Application factory.
-    """
+from .services.ollama_manager import warm_model
+
+def create_app(config_class=Config):
     app = Flask(__name__)
     app.config.from_object(config_class)
 
-    # Initialize extensions
     db.init_app(app)
     migrate.init_app(app, db)
 
-    # Ensure Ollama + model availability BEFORE registering blueprints
-    ensure_ollama_ready()
-
     # Register blueprints
     app.register_blueprint(main_bp)
+    app.register_blueprint(health_bp)
+
+    # Warm the model AFTER app is fully created
+    with app.app_context():
+        warm_model()
 
     return app
+
