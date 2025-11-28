@@ -6,40 +6,44 @@ from dotenv import load_dotenv
 from .config import Config
 from .extensions import db, migrate
 from .routes.main import main_bp
+from .services.ollama_manager import ensure_ollama_ready
 
 
-# app/__init__.py
+def load_environment():
+    """
+    Load secrets and environment variables from .secrets and .env.
+    """
+    base_dir = os.path.dirname(os.path.dirname(__file__))
 
-import os
-from dotenv import load_dotenv
+    secrets_file = os.path.join(base_dir, ".secrets")
+    env_file = os.path.join(base_dir, ".env")
 
-# load secrets
-load_dotenv(os.path.join(os.path.dirname(os.path.dirname(__file__)), ".secrets"))
-load_dotenv()
+    if os.path.exists(secrets_file):
+        load_dotenv(secrets_file)
 
-from flask import Flask
-from .config import Config
-from .extensions import db, migrate
-from .routes.main import main_bp
+    if os.path.exists(env_file):
+        load_dotenv(env_file)
 
-# NEW:
-from .services.ollama_manager import ensure_ollama_running
+
+# Load environment variables immediately on module import
+load_environment()
 
 
 def create_app(config_class: type[Config] = Config) -> Flask:
+    """
+    Application factory.
+    """
     app = Flask(__name__)
     app.config.from_object(config_class)
 
-    # NEW: Ensure Ollama is running BEFORE anything else loads
-    try:
-        ensure_ollama_running()
-    except Exception as e:
-        print(str(e))
-        print("Flask will exit now.")
-        raise SystemExit(1)
-
+    # Initialize extensions
     db.init_app(app)
     migrate.init_app(app, db)
+
+    # Ensure Ollama + model availability BEFORE registering blueprints
+    ensure_ollama_ready()
+
+    # Register blueprints
     app.register_blueprint(main_bp)
 
     return app
