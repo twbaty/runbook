@@ -130,7 +130,7 @@ REQUIREMENTS:
         db.session.add(rb)
 
     rb.title = data.get("title", f"Runbook for {topic}")
-    rb.markdown = markdown
+    rb.markdown = final_md
 
     db.session.commit()
     return rb
