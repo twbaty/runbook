@@ -3,7 +3,7 @@ from flask import Flask
 from .extensions import db
 from .ollama_auto import pick_best_model  # OK
 from .routes.main import main_bp          # <-- your web UI
-from .routes.health import health_bp      # <-- the /health endpoint
+from .routes.health import bp as health_bp      # <-- the /health endpoint
 
 def create_app():
     app = Flask(__name__)
