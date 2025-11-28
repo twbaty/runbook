@@ -62,6 +62,7 @@ def assign_topics_to_tickets(tickets):
 
 def generate_runbook_for_topic(topic: str) -> Runbook:
     """Create/update the runbook for a given topic."""
+
     tickets = Ticket.query.filter_by(topic=topic).order_by(Ticket.opened_at).all()
 
     payload = {
@@ -91,13 +92,10 @@ REQUIREMENTS:
 
     raw = call_llm(prompt)
 
-    print("RAW LLM OUTPUT:", raw)
-
-    # Attempt to parse JSON
+    # Try JSON
     try:
         data = json.loads(raw)
-    except Exception as e:
-        print("JSON PARSE ERROR:", e)
+    except Exception:
         data = {
             "title": f"Runbook for {topic}",
             "summary": raw,
@@ -105,6 +103,7 @@ REQUIREMENTS:
             "references": []
         }
 
+    # Markdown renderer
     md_template = Template("""
 # {{ runbook.title }}
 
@@ -124,13 +123,16 @@ REQUIREMENTS:
 
     markdown = md_template.render(runbook=data)
 
+    # Save or update database record
     rb = Runbook.query.filter_by(topic=topic).first()
     if not rb:
         rb = Runbook(topic=topic, title=data.get("title", f"Runbook for {topic}"))
         db.session.add(rb)
 
     rb.title = data.get("title", f"Runbook for {topic}")
-    rb.markdown = final_md
+    rb.markdown = markdown      # <-- FIXED. This is the correct variable.
+    rb.json_blob = json.dumps(data)
+    rb.tickets_used = len(tickets)
 
     db.session.commit()
     return rb
