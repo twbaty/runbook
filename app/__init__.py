@@ -1,25 +1,13 @@
 from flask import Flask
-from .config import Config
-from .extensions import db, migrate
-from .routes.main import main_bp
-from .routes.health import health_bp
+from .ollama_auto import pick_best_model, warm_model
 
-# NEW IMPORTS (corrected)
-from .services.ollama_manager import initialize_ollama, warm_model
-
-def create_app(config_class: type[Config] = Config) -> Flask:
+def create_app():
     app = Flask(__name__)
-    app.config.from_object(config_class)
 
-    db.init_app(app)
-    migrate.init_app(app, db)
+    selected_model, free_ram = pick_best_model()
+    app.config["LOCAL_LLM_MODEL"] = selected_model
+    app.config["LOCAL_FREE_RAM_GIB"] = free_ram
 
-    app.register_blueprint(main_bp)
-    app.register_blueprint(health_bp)
-
-    # ---- OLLAMA INIT ----
-    initialize_ollama()
-    warm_model()
-    # ---------------------
+    warm_model(selected_model)
 
     return app
