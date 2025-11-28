@@ -1,0 +1,16 @@
+# app/config.py
+import os
+from pathlib import Path
+
+BASE_DIR = Path(__file__).resolve().parent.parent
+
+class Config:
+    SECRET_KEY = os.getenv("SECRET_KEY", "dev-key-change-me")
+    SQLALCHEMY_DATABASE_URI = os.getenv(
+        "DATABASE_URL",
+        f"sqlite:///{BASE_DIR / 'runbook.db'}"
+    )
+    SQLALCHEMY_TRACK_MODIFICATIONS = False
+
+    # for later: API keys, etc.
+    OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
