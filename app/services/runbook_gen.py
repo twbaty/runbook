@@ -10,11 +10,6 @@ from ..extensions import db
 from ..models import Ticket, Runbook
 from .ai_client import call_llm
 
-env = Environment(
-    loader=FileSystemLoader(current_app.root_path + "/templates"),
-    autoescape=select_autoescape(["html", "xml", "md"])
-)
-
 def classify_ticket_topic(ticket: Ticket) -> str:
     prompt = f"""
 You are classifying a ServiceNow security-related ticket into a high-level topic label.
