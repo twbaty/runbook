@@ -10,6 +10,14 @@ from ..extensions import db
 from ..models import Ticket, Runbook
 from .ai_client import call_llm
 
+def get_env():
+    """Return a Jinja2 environment bound to the app context."""
+    root = current_app.root_path
+    return Environment(
+        loader=FileSystemLoader(root + "/templates"),
+        autoescape=select_autoescape(["html", "xml", "md"])
+    )
+
 def classify_ticket_topic(ticket: Ticket) -> str:
     prompt = f"""
 You are classifying a ServiceNow security-related ticket into a high-level topic label.
@@ -99,7 +107,9 @@ Tickets:
     data = json.loads(raw)
 
     # Render markdown from template
-    template = env.get_template("runbook.md.j2")
+    env = get_env()
+    temPlate = env.get_template("runbook.md.j2")
+
     markdown = template.render(runbook=data)
 
     rb = Runbook.query.filter_by(topic=topic).first()
