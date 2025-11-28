@@ -1,0 +1,4 @@
+Number,Short description,Description,Work notes,Close notes,Category,Subcategory,Assignment group,Configuration item,Opened at,Closed at
+INC0001,Phishing email,User received suspicious email,"User called SOC, blocked sender","Resolved after block",Security,Phishing,Security Operations,Email System,2024-06-01 10:30:00,2024-06-01 11:10:00
+INC0002,VPN failure,Vpn issues after patching,"Investigated logs","Restarted VPN service",Infrastructure,VPN,Network Team,VPN Server,2024-06-02 08:00:00,2024-06-02 08:45:00
+INC0003,Malware alert,Detections by CrowdStrike,"Quarantined file","User machine clean",Security,Malware,Security Operations,Laptop-123,2024-06-02 15:12:00,2024-06-02 16:00:00
