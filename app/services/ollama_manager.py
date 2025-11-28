@@ -14,6 +14,21 @@ def _run_cmd(cmd):
         cmd, shell=True, capture_output=True, text=True
     )
 
+def ping_model() -> bool:
+    """
+    Send a 1-token prompt to the model to ensure it's loaded into RAM.
+    Returns True if successful.
+    """
+    import requests
+    try:
+        resp = requests.post(
+            f"{OLLAMA_HOST}/api/generate",
+            json={"model": MODEL_NAME, "prompt": "ping"},
+            timeout=8,
+        )
+        return resp.status_code == 200
+    except Exception:
+        return False
 
 def ollama_is_running() -> bool:
     """Return True if Ollama service is running."""
@@ -69,3 +84,15 @@ def ensure_ollama_ready():
     """Top-level initializer: run once on Flask startup."""
     start_ollama()
     ensure_model_present(REQUIRED_MODEL)
+
+def warm_model():
+    """
+    Ensure Ollama is running AND preload the model into RAM.
+    """
+    if ensure_ollama_running():
+        print("🔥 Warming Ollama model...")
+        if ping_model():
+            print("✔ Model is warmed and ready.")
+        else:
+            print("⚠ Model ping failed — may still be cold.")
+
