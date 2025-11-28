@@ -1,4 +1,7 @@
-# app/services/runbook_gen.py
+# ======================================================
+# Runbook Generation Service (Final Clean Version)
+# ======================================================
+
 import json
 from jinja2 import Template
 
@@ -10,7 +13,7 @@ from ..models import Ticket, Runbook
 
 
 # ======================================================
-# CLASSIFY TOPICS (AI)
+# TOPIC CLASSIFICATION (AI)
 # ======================================================
 
 def classify_ticket_topic(ticket: Ticket) -> str:
@@ -20,36 +23,26 @@ def classify_ticket_topic(ticket: Ticket) -> str:
     prompt = f"""
 Classify the topic of this ticket into ONE short label, lowercase:
 
-Valid examples:
-- vpn_failure
-- phishing
-- malware
-- email_issue
-- endpoint_issue
-- ransomware
-- identity_issue
-- network_issue
-- access_issue
-- cloud_issue
+Examples:
+vpn_failure, phishing, malware, email_issue, endpoint_issue,
+identity_issue, network_issue, access_issue, cloud_issue
 
 Incident text:
 {text}
 
-Return ONLY the label. No extra words.
+Return ONLY the label.
 """
 
-    raw = call_llm(prompt)
-    label = raw.split()[0].lower().strip()
-    return label or "uncategorized"
+    raw = call_llm(prompt).strip().lower()
+    return raw.split()[0] if raw else "uncategorized"
 
 
 
 # ======================================================
-# BULK ASSIGN TOPICS
+# BULK TOPIC ASSIGNMENT
 # ======================================================
 
 def assign_topics_to_tickets(tickets):
-    """Assign AI-derived topics to a list of Ticket objects."""
     for t in tickets:
         t.topic = classify_ticket_topic(t)
     db.session.commit()
@@ -57,12 +50,11 @@ def assign_topics_to_tickets(tickets):
 
 
 # ======================================================
-# GENERATE RUNBOOK
+# RUNBOOK GENERATION — MAIN PIPELINE
 # ======================================================
 
 def generate_runbook_for_topic(topic: str) -> Runbook:
-    """Create/update the runbook for a given topic."""
-
+    """Create/update a runbook for a given topic."""
     tickets = Ticket.query.filter_by(topic=topic).order_by(Ticket.opened_at).all()
 
     payload = {
@@ -78,49 +70,68 @@ def generate_runbook_for_topic(topic: str) -> Runbook:
         ]
     }
 
-        prompt = f"""
-You are generating a runbook for Tier 1/Tier 2 IT analysts.
+    # ================================
+    # Strong JSON-controlled prompt
+    # ================================
+    prompt = f"""
+You are generating a runbook for Tier 1/Tier 2 IT support.
 
-INPUT (tickets):
+INPUT TICKETS:
 {json.dumps(payload, indent=2)}
 
-REQUIREMENTS:
-- Return ONLY valid JSON.
-- Do NOT include markdown, schemas, metadata, or explanation.
-- JSON must have EXACTLY these keys:
-  "title", "summary", "steps", "references"
-- "title": short and human-readable.
-- "summary": 2–4 sentences explaining the problem in plain language based on ticket patterns.
-- "steps": 5–12 operational steps that reflect common remediation actions found in the tickets.
-    * Steps MUST be imperative commands (e.g., "Check X", "Verify Y").
-    * Steps MUST be practical, actionable, and specific.
-- "references": list of related tools, consoles, dashboards, or documentation links
-    * Keep them short, e.g. "O365 Admin Center → Message Trace"
+Your output must be ONLY valid JSON with EXACTLY:
 
-ABSOLUTELY DO NOT:
-- produce schemas
-- wrap anything in markdown
-- nest keys
-- embed the entire JSON inside one field
+{{
+  "title": "",
+  "summary": "",
+  "steps": [],
+  "references": []
+}}
 
-Return ONLY the JSON object.
+Rules:
+- "summary" = 2–4 sentences explaining the problem.
+- "steps" = 5–12 actionable bullet steps (imperative action).
+- "references" = tools, consoles, or docs (short phrases only).
+- NO MARKDOWN
+- NO CODE BLOCKS
+- NO SCHEMAS
+- NO EXTRA KEYS
+
+Return JSON and NOTHING else.
 """
-
 
     raw = call_llm(prompt)
 
-    # Try JSON
+    # ================================
+    # Attempt strict JSON parse
+    # ================================
     try:
         data = json.loads(raw)
     except Exception:
+        # Fallback — salvage something usable
         data = {
             "title": f"Runbook for {topic}",
-            "summary": raw,
-            "steps": [],
+            "summary": raw[:2000],  # store raw but truncated
+            "steps": ["Review raw LLM output — failed structured parse."],
             "references": []
         }
 
-    # Markdown renderer
+    # Ensure minimal keys exist
+    data.setdefault("summary", "")
+    data.setdefault("steps", [])
+    data.setdefault("references", [])
+
+    # Remove code fences if model leaked them
+    data["summary"] = (
+        data["summary"]
+        .replace("```json", "")
+        .replace("```", "")
+        .strip()
+    )
+
+    # ================================
+    # Build Markdown Output
+    # ================================
     md_template = Template("""
 # {{ runbook.title }}
 
@@ -128,27 +139,34 @@ Return ONLY the JSON object.
 {{ runbook.summary }}
 
 ## Steps
+{% if runbook.steps %}
 {% for step in runbook.steps %}
 - {{ step }}
 {% endfor %}
+{% else %}
+_No steps returned — model output weak or malformed._
+{% endif %}
 
+{% if runbook.references %}
 ## References
 {% for ref in runbook.references %}
 - {{ ref }}
 {% endfor %}
+{% endif %}
 """)
 
     markdown = md_template.render(runbook=data)
 
-    # Save or update database record
+    # ================================
+    # DB WRITE / UPDATE
+    # ================================
     rb = Runbook.query.filter_by(topic=topic).first()
     if not rb:
         rb = Runbook(topic=topic, title=data.get("title", f"Runbook for {topic}"))
         db.session.add(rb)
 
     rb.title = data.get("title", f"Runbook for {topic}")
-    rb.markdown = markdown      # <-- FIXED. This is the correct variable.
-    rb.json_blob = json.dumps(data)
+    rb.markdown = markdown
     rb.tickets_used = len(tickets)
 
     db.session.commit()
