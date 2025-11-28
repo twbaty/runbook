@@ -7,6 +7,7 @@ from .config import Config
 from .extensions import db, migrate
 from .routes.main import main_bp
 from .services.ollama_manager import ensure_ollama_ready
+from .routes.health import health_bp
 
 
 def load_environment():
