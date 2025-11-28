@@ -1,80 +1,38 @@
 # app/services/ai_client.py
-import os
-import json
 import requests
 from flask import current_app
-from app.services.ollama_manager import SELECTED_MODEL
 
-from .phi_scrub import scrub_text
-
-
-# ======================================================
-# LOCAL LLM (OLLAMA) CLIENT
-# ======================================================
-
-def _get_llm_base_url() -> str:
-    """Return the local LLM server URL."""
-    return current_app.config.get("LOCAL_LLM_BASE_URL", "http://localhost:11434")
-
-def get_local_llm_model():
-    # If user manually set LOCAL_LLM_MODEL in config, use it.
-    explicit = current_app.config.get("LOCAL_LLM_MODEL")
-    if explicit:
-        return explicit
-
-    # Otherwise fallback to automatically selected model
-    return SELECTED_MODEL
+OLLAMA_URL = "http://127.0.0.1:11434/api/generate"
 
 
 def call_llm(prompt: str) -> str:
     """
-    Call a **local** LLM using Ollama.
-    PHI is scrubbed before the request.
+    Call the locally-selected Ollama model.
     """
-    prompt_safe = scrub_text(prompt)
+    model = current_app.config.get("LOCAL_LLM_MODEL", "llama3.2:1b")
 
-    base_url = _get_llm_base_url()
-    model = _get_llm_model()
+    try:
+        resp = requests.post(
+            OLLAMA_URL,
+            json={"model": model, "prompt": prompt},
+            timeout=20,
+        )
+        resp.raise_for_status()
+    except Exception as e:
+        print("LLM request failed:", e)
+        return "UNKNOWN"
 
-    # Ollama chat endpoint
-    payload = {
-        "model": model,
-        "messages": [
-            {"role": "system", "content": "You are a security runbook assistant."},
-            {"role": "user", "content": prompt_safe},
-        ],
-        "stream": False,
-    }
+    # Ollama returns a streaming-like sequence of JSON objects.
+    text = ""
+    try:
+        for line in resp.text.splitlines():
+            if not line.strip():
+                continue
+            import json
+            part = json.loads(line)
+            text += part.get("response", "")
+    except Exception as e:
+        print("LLM parse error:", e)
+        return "UNKNOWN"
 
-    resp = requests.post(f"{base_url}/api/chat", json=payload, timeout=120)
-    resp.raise_for_status()
-
-    data = resp.json()
-    return data.get("message", {}).get("content", "").strip()
-
-
-
-# ======================================================
-# OPTIONAL: OPENAI FALLBACK (DISABLED BY DEFAULT)
-# ======================================================
-"""
-Uncomment ONLY if you reinstate OpenAI usage *AND* have a BAA.
-Otherwise leave disabled for PHI reasons.
-
-from openai import OpenAI
-
-def call_llm_openai(prompt: str) -> str:
-    api_key = current_app.config.get("OPENAI_API_KEY")
-    if not api_key:
-        raise RuntimeError("OPENAI_API_KEY not configured")
-
-    client = OpenAI(api_key=api_key)
-
-    resp = client.chat.completions.create(
-        model="gpt-4.1-mini",
-        messages=[
-            {"role": "user", "content": scrub_text(prompt)}
-        ]
-    )
-    return resp.choices[0].message.content
-"""
+    return text.strip()
