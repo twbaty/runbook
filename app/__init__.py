@@ -1,4 +1,11 @@
 # app/__init__.py
+import os
+from dotenv import load_dotenv
+
+# Always load local secrets file if present
+secrets_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), '.secrets')
+load_dotenv(secrets_path)
+
 from flask import Flask
 from .config import Config
 from .extensions import db, migrate
