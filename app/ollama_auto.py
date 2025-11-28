@@ -1,172 +1,112 @@
 import subprocess
 import psutil
 import requests
-import time
 import json
+import time
 
-# Minimum realistic free RAM needed per model family
+# Hard lower limits based on real-world Ollama behavior
 MODEL_RAM_REQUIREMENTS_GIB = {
     "0.5B": 1.0,
     "1B":   1.5,
     "1.2B": 1.5,
-    "2B":   2.5,
+    "2B":   2.8,
     "3B":   4.0,
-    "4B":   5.0,
-    "7B":   7.0,
-    "8B":   8.5,
-    "12B":  12.0,
-    "13B":  13.0,
-    "30B":  30.0,
+    "4B":   5.5,
+    "7B":   8.0,
+    "8B":   10.0,   # ← bump to prevent false positives
+    "12B":  14.0,
+    "13B":  15.0,
+    "30B":  32.0,
 }
 
-# -----------------------------------------
-# SYSTEM RAM CHECK
-# -----------------------------------------
-def get_free_ram_gib():
-    mem = psutil.virtual_memory()
-    return mem.available / (1024 ** 3)
+def get_allocatable_ram_gib():
+    """Return realistic allocatable RAM, not optimistic Linux numbers."""
+    vm = psutil.virtual_memory()
 
+    # More conservative than vm.available
+    allocatable = (
+        vm.available
+        - vm.buffers
+        - vm.shared
+        - (0.10 * vm.total)   # subtract 10% safety margin
+    )
 
-# -----------------------------------------
-# OLLAMA PROCESS CHECK
-# -----------------------------------------
-def ensure_ollama_running():
-    """
-    Starts Ollama if it's not running.
-    Returns True when the Ollama API is reachable.
-    """
-    # First, check if it's responding
-    try:
-        r = requests.get("http://127.0.0.1:11434/api/tags", timeout=1)
-        if r.status_code == 200:
-            return True
-    except Exception:
-        pass
+    gib = max(allocatable / (1024 ** 3), 0)
+    return round(gib, 2)
 
-    # Not running → try starting it
-    try:
-        subprocess.Popen(
-            ["ollama", "serve"],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL
-        )
-    except Exception as e:
-        print("Failed to start Ollama:", e)
-        return False
-
-    # Wait for it to come online
-    for _ in range(25):
-        try:
-            r = requests.get("http://127.0.0.1:11434/api/tags", timeout=1)
-            if r.status_code == 200:
-                return True
-        except Exception:
-            time.sleep(0.2)
-
-    print("Ollama failed to start.")
-    return False
-
-
-# -----------------------------------------
-# MODEL LISTING
-# -----------------------------------------
 def list_local_models():
-    """
-    Wraps curl → returns [] if API is offline or returns malformed JSON.
-    """
     try:
-        result = subprocess.run(
+        out = subprocess.run(
             ["curl", "-s", "http://127.0.0.1:11434/api/tags"],
-            capture_output=True,
-            text=True
+            text=True, capture_output=True
         )
-        if not result.stdout:
-            return []
-
-        parsed = json.loads(result.stdout)
-        return parsed.get("models", [])
-    except Exception:
+        return json.loads(out.stdout).get("models", [])
+    except:
         return []
 
-
-# -----------------------------------------
-# PARAMETER SIZE EXTRACTION
-# -----------------------------------------
-def extract_param_size(model_info):
-    """
-    Extracts sizes like '1B', '1.2B', '8B', etc.
-    Returns normalized form '2B', '3B', '8B', etc.
-    """
-    details = model_info.get("details", {})
+def extract_param_size(model):
+    details = model.get("details", {})
     p = details.get("parameter_size")
     if not p:
         return None
-
     p = p.upper().replace("B", "").strip()
-
     try:
-        val = float(p)
-        # Normalize: 3.0 → "3B"
-        return f"{int(val)}B" if val.is_integer() else f"{val}B"
-    except Exception:
+        return f"{float(p)}B"
+    except:
         return None
 
+def test_load_model(name):
+    """Try a tiny test generation to confirm the model is genuinely loadable."""
+    try:
+        res = requests.post(
+            "http://127.0.0.1:11434/api/generate",
+            json={"model": name, "prompt": "hi"},
+            timeout=4
+        )
+        if res.status_code != 200:
+            return False
+        data = res.json()
+        if "error" in data:
+            return False
+        return True
+    except:
+        return False
 
-# -----------------------------------------
-# MODEL SELECTION
-# -----------------------------------------
 def pick_best_model():
-    """
-    Selects the largest local Ollama model that fits into available RAM.
-    Returns (model_name, free_ram_gib).
-    """
     models = list_local_models()
-    free_ram = get_free_ram_gib()
-
-    if not models:
-        return None, free_ram
+    alloc_ram = get_allocatable_ram_gib()
 
     candidates = []
-
     for m in models:
         param = extract_param_size(m)
         if not param:
             continue
 
-        needed = MODEL_RAM_REQUIREMENTS_GIB.get(param, None)
+        param_key = param.replace(".0B", "B")
+        needed = MODEL_RAM_REQUIREMENTS_GIB.get(param_key)
 
-        # If size unknown → estimate RAM need based on file size
+        # If unknown param size, fail-safe to requiring full model size
         if needed is None:
-            needed = (m.get("size", 0) / (1024 ** 3)) * 1.3
+            needed = (m.get("size", 0) / (1024**3)) * 1.5
 
-        if free_ram >= needed:
-            num = float(param.replace("B", ""))
-            candidates.append((num, m))
+        # Only consider if allocatable RAM is enough
+        if alloc_ram >= needed:
+            candidates.append((float(param_key.replace("B", "")), m))
 
+    # If nothing fits conservative RAM limits → pick smallest model
     if not candidates:
-        # Fall back to smallest installed model
-        smallest = sorted(models, key=lambda x: x.get("size", 999999999))[0]
-        return smallest.get("name"), free_ram
+        smallest = sorted(models, key=lambda x: x.get("size", 999999))[0]
+        name = smallest.get("name")
+        return name, alloc_ram
 
-    # Select largest that fits
-    _, best = sorted(candidates, key=lambda x: x[0], reverse=True)[0]
-    return best.get("name"), free_ram
+    # Try largest candidates first
+    for _, m in sorted(candidates, key=lambda x: x[0], reverse=True):
+        name = m.get("name")
 
+        # Do NOT trust RAM alone — confirm with a real test load
+        if test_load_model(name):
+            return name, alloc_ram
 
-# -----------------------------------------
-# OPTIONAL: PRELOAD
-# -----------------------------------------
-def warm_model(model_name):
-    """
-    Sends a small prompt to preload the model.
-    Does not crash the app if Ollama is cold.
-    """
-    try:
-        requests.post(
-            "http://127.0.0.1:11434/api/generate",
-            json={"model": model_name, "prompt": "hello"},
-            timeout=10,
-        )
-        return True
-    except Exception:
-        return False
+    # If all test loads failed, fallback
+    smallest = sorted(models, key=lambda x: x.get("size", 999999))[0]
+    return smallest.get("name"), alloc_ram
