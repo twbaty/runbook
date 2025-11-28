@@ -85,9 +85,14 @@ INPUT:
 {json.dumps(payload, indent=2)}
 
 REQUIREMENTS:
-- Return ONLY valid JSON.
-- Keys: "title", "summary", "steps", "references"
-- "steps" = list of strings
+- Produce a simple JSON object.
+- Keys REQUIRED: "title", "summary", "steps", "references"
+- "steps" MUST be a list of short bullet-point strings.
+- "references" MUST be a list of short strings.
+- ABSOLUTELY DO NOT include schemas, metadata, keywords, versions, or nested structures.
+- DO NOT include explanation, commentary, or markdown.
+- DO NOT include any keys other than: title, summary, steps, references.
+- Return ONLY the JSON object.
 """
 
     raw = call_llm(prompt)
