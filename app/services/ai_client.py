@@ -3,6 +3,7 @@ import os
 import json
 import requests
 from flask import current_app
+from app.services.ollama_manager import SELECTED_MODEL
 
 from .phi_scrub import scrub_text
 
@@ -15,10 +16,14 @@ def _get_llm_base_url() -> str:
     """Return the local LLM server URL."""
     return current_app.config.get("LOCAL_LLM_BASE_URL", "http://localhost:11434")
 
+def get_local_llm_model():
+    # If user manually set LOCAL_LLM_MODEL in config, use it.
+    explicit = current_app.config.get("LOCAL_LLM_MODEL")
+    if explicit:
+        return explicit
 
-def _get_llm_model() -> str:
-    """Return the local LLM model name."""
-    return current_app.config.get("LOCAL_LLM_MODEL", "llama3.1")
+    # Otherwise fallback to automatically selected model
+    return SELECTED_MODEL
 
 
 def call_llm(prompt: str) -> str:
