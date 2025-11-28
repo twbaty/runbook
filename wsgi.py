@@ -1,4 +1,9 @@
-# wsgi.py
+import os
+from dotenv import load_dotenv
+
+# Always load .secrets before anything else imports AI code
+load_dotenv(".secrets")
+
 from app import create_app
 
 app = create_app()
