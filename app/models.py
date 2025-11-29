@@ -6,7 +6,7 @@ class Ticket(db.Model):
     __tablename__ = "tickets"
 
     id = db.Column(db.Integer, primary_key=True)
-    number = db.Column(db.String(64), index=True)
+    number = db.Column(db.String(64), unique=True, index=True)
     short_description = db.Column(db.Text)
     description = db.Column(db.Text)
     work_notes = db.Column(db.Text)
