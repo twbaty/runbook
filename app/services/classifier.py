@@ -1,109 +1,111 @@
 # app/services/classifier.py
-"""
-Deterministic, high-speed ticket classifier for SNOW incident imports.
-
-ORDER OF OPERATIONS:
-1. Normalize text
-2. Apply strict keyword taxonomy (fastest, best quality)
-3. Apply fuzzy keyword families (catch mixed wording)
-4. If still ambiguous → classify as "other"
-5. Optional LLM fallback (disabled by default for performance)
-
-This is tuned for large SNOW datasets (100k–700k lines).
-"""
-
 import re
-from .phi_scrub import scrub_text
 
-# ============================================================
-# TAXONOMY DEFINITIONS (hand-tuned)
-# ============================================================
 
+# ----------------------------------------------------
+#  BASE TAXONOMY
+#  (built from your actual SNOW sample data)
+# ----------------------------------------------------
 TAXONOMY = {
     "email_issue": [
-        r"email", r"mail", r"outlook", r"exchange",
-        r"o365", r"office\s*365",
-        r"phish", r"spam", r"junk",
-        r"undeliver", r"bounce", r"mailer-daemon",
-        r"recipient", r"inbox", r"mfa\s*email"
-    ],
-
-    "endpoint_issue": [
-        r"laptop", r"desktop", r"workstation", r"computer",
-        r"blue\s*screen", r"bsod", r"crash", r"freeze",
-        r"boot", r"startup", r"no\s*power",
-        r"slow", r"performance", r"slowness"
+        r"email",
+        r"outlook",
+        r"mailbox",
+        r"ndr",
+        r"not receiving",
+        r"unable to send",
+        r"delivery failure",
+        r"smtp",
+        r"shared mailbox",
+        r"distribution list",
     ],
 
     "access_issue": [
-        r"access", r"permission", r"permissions",
-        r"login", r"log in", r"credential", r"username",
-        r"password", r"locked\s*out", r"unlock",
-        r"account\s*issue"
+        r"password",
+        r"unlock",
+        r"account",
+        r"login",
+        r"credential",
+        r"mfa",
+        r"duo",
+        r"permission",
+        r"unauthorized",
+        r"sso",
+        r"access request",
+        r"group membership",
     ],
 
-    "cloud_issue": [
-        r"aws", r"azure", r"gcp", r"cloud",
-        r"s3", r"bucket", r"cloudflare",
-        r"vm\s*error", r"virtual\s*machine"
+    "endpoint_issue": [
+        r"computer",
+        r"workstation",
+        r"device",
+        r"desktop",
+        r"laptop",
+        r"blue screen",
+        r"disk",
+        r"antivirus",
+        r"slow",
+        r"won'?t boot",
+        r"crash",
     ],
 
-    "security_issue": [
-        r"malware", r"virus", r"trojan", r"ransom",
-        r"infect", r"compromise", r"security",
-        r"threat", r"alert"
+    "network_issue": [
+        r"vpn",
+        r"network",
+        r"wifi",
+        r"no connectivity",
+        r"port",
+    ],
+
+    "application_issue": [
+        r"epic",
+        r"citrix",
+        r"kronos",
+        r"teams",
+        r"onedrive",
+        r"sharepoint",
+        r"printer",
+        r"fax",
+        r"snow",
+        r"servicenow",
     ],
 }
 
-# Explicit fast-path overrides (very high signal)
-HARDCODED = [
-    (r"vpn", "vpn_issue"),
-    (r"duo|okta|mfa|2fa", "access_issue"),
-]
+
+# ----------------------------------------------------
+#  NORMALIZER
+# ----------------------------------------------------
+def _norm(text):
+    if not text:
+        return ""
+    return text.lower().strip()
 
 
-# ============================================================
-# CLASSIFIER
-# ============================================================
-
+# ----------------------------------------------------
+#  RULE-BASED CLASSIFIER
+# ----------------------------------------------------
 def classify_ticket(ticket):
     """
-    Main entry point used by runbook_gen.py.
-    Input: Ticket object
-    Output: short deterministic label
+    Deterministic classifier built from your real SNOW ticket language.
+    No LLM unless everything fails.
     """
 
-    text = f"{ticket.short_description} {ticket.description or ''}".lower()
-    text = scrub_text(text)
+    text = " ".join([
+        _norm(ticket.short_description),
+        _norm(ticket.description),
+        _norm(ticket.category),
+        _norm(ticket.subcategory),
+        _norm(ticket.assignment_group),
+        _norm(ticket.ci),
+    ])
 
-    # -----------------------------
-    # 1. HARD OVERRIDES
-    # -----------------------------
-    for pattern, label in HARDCODED:
-        if re.search(pattern, text):
-            return label
+    if not text.strip():
+        return "other"
 
-    # -----------------------------
-    # 2. APPLY TAXONOMY
-    # -----------------------------
-    best_label = None
-    best_hits = 0
+    # Pattern match by topic
+    for topic, patterns in TAXONOMY.items():
+        for p in patterns:
+            if re.search(p, text):
+                return topic
 
-    for label, patterns in TAXONOMY.items():
-        hits = sum(1 for p in patterns if re.search(p, text))
-        if hits > best_hits:
-            best_hits = hits
-            best_label = label
-
-    # Very strong match → accept
-    if best_hits >= 2:
-        return best_label
-
-    # Weak signal but at least one match → accept it as low-confidence
-    if best_hits == 1:
-        return best_label
-
-    # -----------------------------
-    # 3. CATCH ALL
-    # -----------------------------
     return "other"
