@@ -11,18 +11,16 @@ main_bp = Blueprint("main", __name__)
 def index():
     topics = (
         db.session.query(Ticket.topic, db.func.count(Ticket.id))
-        .filter(Ticket.topic.isnot(None))          # <---- add this
+        .filter(Ticket.topic.isnot(None))
         .group_by(Ticket.topic)
         .all()
     )
 
-    print("DEBUG TOPICS:", topics)
-
     runbooks = Runbook.query.order_by(Runbook.last_updated.desc()).all()
     return render_template("index.html", topics=topics, runbooks=runbooks)
 
-@main_bp.route("/upload_snow", methods=["GET", "POST"])
 
+@main_bp.route("/upload_snow", methods=["GET", "POST"])
 def upload_snow():
     if request.method == "POST":
         file = request.files.get("file")
@@ -30,15 +28,19 @@ def upload_snow():
             flash("No file uploaded", "danger")
             return redirect(request.url)
 
+        # Import SNOW CSV → returns a dict
         result = import_snow_csv(file)
+
+        # Number of NEW tickets inserted
         count = result["inserted"]
 
         flash(
             f"Imported {result['inserted']} new tickets "
             f"({result['updated']} updated, {result['skipped']} skipped).",
             "success"
-        )      
+        )
 
+        # Pull the newly added tickets
         tickets = (
             Ticket.query
             .order_by(Ticket.id.desc())
@@ -46,8 +48,8 @@ def upload_snow():
             .all()
         )
 
-assign_topics_to_tickets(tickets)
-
+        # Assign topics to only those new tickets
+        assign_topics_to_tickets(tickets)
 
         return redirect(url_for("main.index"))
 
@@ -56,13 +58,20 @@ assign_topics_to_tickets(tickets)
 
 @main_bp.route("/topic/<topic>")
 def view_topic(topic):
-    tickets = Ticket.query.filter_by(topic=topic)\
-                          .order_by(Ticket.opened_at.desc()).all()
+    tickets = (
+        Ticket.query
+        .filter_by(topic=topic)
+        .order_by(Ticket.opened_at.desc())
+        .all()
+    )
     runbook = Runbook.query.filter_by(topic=topic).first()
-    return render_template("tickets_by_topic.html",
-                           topic=topic,
-                           tickets=tickets,
-                           runbook=runbook)
+
+    return render_template(
+        "tickets_by_topic.html",
+        topic=topic,
+        tickets=tickets,
+        runbook=runbook
+    )
 
 
 @main_bp.route("/topic/<topic>/generate", methods=["POST"])
