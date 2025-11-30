@@ -22,6 +22,7 @@ def index():
     return render_template("index.html", topics=topics, runbooks=runbooks)
 
 @main_bp.route("/upload_snow", methods=["GET", "POST"])
+
 def upload_snow():
     if request.method == "POST":
         file = request.files.get("file")
@@ -29,11 +30,24 @@ def upload_snow():
             flash("No file uploaded", "danger")
             return redirect(request.url)
 
-        count = import_snow_csv(file)
-        flash(f"Imported {count} tickets from SNOW report.", "success")
+        result = import_snow_csv(file)
+        count = result["inserted"]
 
-        tickets = Ticket.query.order_by(Ticket.id.desc()).limit(count).all()
-        assign_topics_to_tickets(tickets)
+        flash(
+            f"Imported {result['inserted']} new tickets "
+            f"({result['updated']} updated, {result['skipped']} skipped).",
+            "success"
+        )      
+
+        tickets = (
+            Ticket.query
+            .order_by(Ticket.id.desc())
+            .limit(count)
+            .all()
+        )
+
+assign_topics_to_tickets(tickets)
+
 
         return redirect(url_for("main.index"))
 
