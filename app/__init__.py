@@ -1,4 +1,4 @@
-# app/_init_.py
+# app/__init__.py
 from flask import Flask
 from .config import Config
 from .extensions import db
@@ -11,6 +11,10 @@ def create_app():
     app.config.from_object(Config)
 
     db.init_app(app)
+
+    # Ensure DB is created in the *correct path*, not cwd
+    with app.app_context():
+        db.create_all()
 
     app.register_blueprint(main_bp)
     app.register_blueprint(health_bp, url_prefix="/health")
